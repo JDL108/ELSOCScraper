@@ -25,7 +25,8 @@ JSON.parse(localStorage.jStorage).sessionid
 4. Copy the output code into the script: SESSION_ID = "PASTE_SESSION_ID_HERE" (around line 23)
 
 ## Run
+Make sure you start running the script about a minute or five before the tickets to drop, you could keep it running a day before but you might get IP banned.
 
 1. In your terminal, run: python RubricScraper.py
-2. When tickets drop, a Chrome browser window will automatically launch with your cart. Complete the payment forms manually. The cart request has already been sent 15ms after the order goes through, it's now sitting in your cart and you have 10 minutes to purchase the ticket)
+2. When tickets drop, a Chrome browser window will automatically launch with your cart. Complete the payment forms manually. The cart request has already been sent 15ms after the order goes through, it's now sitting in your cart and you have 10 minutes to purchase the ticket
 3. Press Ctrl+C in the terminal to stop the script. 

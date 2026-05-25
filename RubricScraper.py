@@ -14,7 +14,7 @@ import requests
 # EVENT_ID = "64539"            # ELSOC grilled cheese (should succeed)
 # EVENT_ID = "64542"            # ELSOC beer and pizza (should succeed)
 # EVENT_ID = "64563"            # Random event - presale (should fail)
-EVENT_ID = "63678"            # ELSOC cruise - wallahi
+EVENT_ID = "63678"              # ELSOC cruise - wallahi
 TICKETS_WANTED = 2
 POLL_INTERVAL = 0.1  # Time in seconds between API availability checks
 
