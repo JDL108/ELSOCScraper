@@ -11,7 +11,7 @@ import requests
 # CONFIGURATION — EDIT THESE THREE VALUES
 # =========================================================================
 # Testing values:
-# EVENT_ID = "64539"            # ELSOC grilled cheese (should succeed)
+EVENT_ID = "64539"            # ELSOC grilled cheese (should succeed)
 # EVENT_ID = "64542"            # ELSOC beer and pizza (should succeed)
 # EVENT_ID = "64563"            # Random event - presale (should fail)
 # EVENT_ID = "63678"            # ELSOC cruise - wallahi
