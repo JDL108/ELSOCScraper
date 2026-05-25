@@ -1,12 +1,12 @@
-import requests
-import time
-import sys
 import json
-import uuid
-import webbrowser
 import os
-import pyperclip
+import sys
+import time
+import uuid
 from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import requests
 
 # =============================================
 # CONFIGURATION — EDIT THESE
@@ -19,7 +19,6 @@ POLL_INTERVAL = 2
 # Run this in your browser console and paste the result below:
 # JSON.parse(localStorage.jStorage).sessionid
 SESSION_ID = "444a27b4-2b64-4508-a961-c62bc36b8e1c"
-
 # =============================================
 
 API_URL = "https://api.hellorubric.com/"
@@ -33,57 +32,109 @@ HEADERS = {
     "dnt": "1",
 }
 
+
 def ts():
     return int(datetime.now().timestamp() * 1000)
 
+
 def post(session, details, endpoint):
-    payload = {
-        "details": json.dumps(details),
-        "endpoint": endpoint
-    }
+    payload = {"details": json.dumps(details), "endpoint": endpoint}
     r = session.post(API_URL, data=payload, timeout=10)
     return r.json()
 
+
 def check_availability(session):
-    return post(session, {
-        "eventId": EVENT_ID,
-        "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
-        "device": "web_portal",
-        "version": 4,
-        "timestamp": ts()
-    }, "https://appserver.getqpay.com:9090/AppServerSwapnil/event/details")
+    return post(
+        session,
+        {
+            "eventId": EVENT_ID,
+            "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
+            "device": "web_portal",
+            "version": 4,
+            "timestamp": ts(),
+        },
+        "https://appserver.getqpay.com:9090/AppServerSwapnil/event/details",
+    )
+
 
 def secure_ticket(session):
-    return post(session, {
-        "waiting": False,
-        "tickettypesChosen": [TICKET_TYPE_ID] * TICKETS_WANTED,
-        "eventId": EVENT_ID,
-        "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
-        "device": "web_portal",
-        "version": 4,
-        "timestamp": ts()
-    }, "https://appserver.getqpay.com:9090/AppServerSwapnil/event/tickets/secure")
+    return post(
+        session,
+        {
+            "waiting": False,
+            "tickettypesChosen": [TICKET_TYPE_ID] * TICKETS_WANTED,
+            "eventId": EVENT_ID,
+            "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
+            "device": "web_portal",
+            "version": 4,
+            "timestamp": ts(),
+        },
+        "https://appserver.getqpay.com:9090/AppServerSwapnil/event/tickets/secure",
+    )
+
 
 def verify_cart(session, flow_uid):
     now = ts()
-    return post(session, {
-        "cartItems": [{"created": now, "type": "ticket", "flowUid": flow_uid}],
-        "sessionid": SESSION_ID,
-        "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
-        "device": "web_portal",
-        "version": 4,
-        "timestamp": now
-    }, "verifyUnifiedCart")
+    return post(
+        session,
+        {
+            "cartItems": [{"created": now, "type": "ticket", "flowUid": flow_uid}],
+            "sessionid": SESSION_ID,
+            "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
+            "device": "web_portal",
+            "version": 4,
+            "timestamp": now,
+        },
+        "verifyUnifiedCart",
+    )
+
 
 def get_recommendations(session, flow_uid, ruuid):
-    return post(session, {
-        "cartItems": [{"created": ts(), "type": "ticket", "flowUid": flow_uid}],
-        "ruuid": ruuid,
-        "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
-        "device": "web_portal",
-        "version": 4,
-        "timestamp": ts()
-    }, "getCartRecommendations")
+    return post(
+        session,
+        {
+            "cartItems": [{"created": ts(), "type": "ticket", "flowUid": flow_uid}],
+            "ruuid": ruuid,
+            "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
+            "device": "web_portal",
+            "version": 4,
+            "timestamp": ts(),
+        },
+        "getCartRecommendations",
+    )
+
+
+def inject_cart_to_browser(flow_uid):
+    """Launches browser, sets local storage natively, and refreshes."""
+    print("🌐 Launching browser via Selenium...")
+
+    chrome_options = Options()
+    # Keeps the browser open after the python script finishes execution
+    chrome_options.add_experimental_option("detach", True)
+    chrome_options.add_argument("--start-maximized")
+
+    driver = webdriver.Chrome(options=chrome_options)
+    target_url = f"https://campus.hellorubric.com/?eid={EVENT_ID}"
+
+    # 1. Navigate to the page first (Required before you can interact with localStorage)
+    driver.get(target_url)
+
+    # 2. Structure the data exactly how jStorage expects it
+    now = ts()
+    cart_data = [{"created": now, "type": "ticket", "flowUid": flow_uid}]
+
+    # 3. Construct the session object inside jStorage format
+    jstorage_payload = {"sessionid": SESSION_ID, "cartItems": cart_data}
+
+    # 4. Use execute_script to write directly into localStorage
+    print("⚡ Injecting cart token into localStorage...")
+    script = f"localStorage.setItem('jStorage', JSON.stringify({json.dumps(jstorage_payload)}));"
+    driver.execute_script(script)
+
+    # 5. Refresh page to reflect the active cart UI instantly
+    driver.refresh()
+    print("🎉 Page refreshed! Your cart should now be active.")
+
 
 def attempt_checkout(session):
     print("🎯 Attempting checkout...")
@@ -94,7 +145,7 @@ def attempt_checkout(session):
         return False
 
     flow_uid = ticket_resp.get("flowUid")
-    print(f"   ✅ Got flowUid: {flow_uid}")
+    print(f"   ... Got flowUid: {flow_uid}")
 
     cart_resp = verify_cart(session, flow_uid)
     if not cart_resp.get("success"):
@@ -102,49 +153,30 @@ def attempt_checkout(session):
         return False
 
     quantity = cart_resp.get("cartArray", [{}])[0].get("quantityRequested", "?")
-    print(f"   ✅ Cart verified — {quantity} tickets secured for 10 mins")
+    print(f"   ... Cart verified — {quantity} tickets secured for 10 mins")
 
     ruuid = str(uuid.uuid4())
     get_recommendations(session, flow_uid, ruuid)
 
-    now = ts()
-    js = f"$.jStorage.set('cartItems',[{{created:{now},type:'ticket',flowUid:'{flow_uid}'}}]);"
+    # Trigger automated browser injection
+    try:
+        inject_cart_to_browser(flow_uid)
+        return True
+    except Exception as e:
+        print(f"   ❌ Error injecting into browser: {e}")
+        return False
 
-    # Copy to clipboard
-    pyperclip.copy(js)
-    print(f"   ✅ Snippet copied to clipboard")
-
-    # Open browser on event page
-    webbrowser.open(f"https://campus.hellorubric.com/?eid={EVENT_ID}")
-    time.sleep(3)  # Wait for browser to open and focus
-
-    # Open console with F12, paste and execute
-    import pyautogui
-    pyautogui.hotkey('f12')       # Open devtools
-    time.sleep(1.5)
-    pyautogui.hotkey('ctrl', '`') # Focus console (fallback)
-    time.sleep(0.5)
-    pyautogui.hotkey('ctrl', 'v') # Paste
-    time.sleep(0.2)
-    pyautogui.press('enter')      # Execute
-    print("   ✅ Script executed in browser console")
-
-    return True
 
 def monitor():
     if SESSION_ID == "paste-your-sessionid-here":
         print("❌ ERROR: You need to set your SESSION_ID first!")
-        print("   Run this in your browser console:")
-        print("   JSON.parse(localStorage.jStorage).sessionid")
         sys.exit(1)
 
     print("==================================================")
-    print(f"🚀 TICKET SNIPER ACTIVATED")
+    print("🚀 TICKET SNIPER ACTIVATED (AUTO-BROWSER)")
     print(f"📡 Event ID: {EVENT_ID}")
     print(f"🎟️  Tickets wanted: {TICKETS_WANTED}")
     print(f"⏱️  Polling every {POLL_INTERVAL}s")
-    print(f"🔑 Session ID: {SESSION_ID[:8]}...")
-    print(f"🖥️  Windows User: {os.environ.get('USERNAME')}")
     print("==================================================")
 
     with requests.Session() as session:
@@ -166,10 +198,12 @@ def monitor():
                 timestamp = time.strftime("%H:%M:%S")
 
                 if status == "Available":
-                    print(f"[{timestamp}] ✅ AVAILABLE — {event_name} | Remaining: {remaining}")
+                    print(
+                        f"[{timestamp}] ✅ AVAILABLE — {event_name} | Remaining: {remaining}"
+                    )
                     success = attempt_checkout(session)
                     if success:
-                        print("✅ Cart secured — Ctrl+V in browser console then Enter!")
+                        print("🏁 Process completed successfully!")
                         sys.exit(0)
                     else:
                         print("❌ Checkout attempt failed, retrying...")
@@ -184,6 +218,7 @@ def monitor():
                 print(f"⚠️  JSON error: {e}")
 
             time.sleep(POLL_INTERVAL)
+
 
 if __name__ == "__main__":
     try:
