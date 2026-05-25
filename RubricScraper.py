@@ -5,6 +5,7 @@ import json
 import uuid
 import webbrowser
 import os
+import pyperclip
 from datetime import datetime
 
 # =============================================
@@ -109,14 +110,24 @@ def attempt_checkout(session):
     now = ts()
     js = f"$.jStorage.set('cartItems',[{{created:{now},type:'ticket',flowUid:'{flow_uid}'}}]);"
 
-    print(f"\n{'='*60}")
-    print(f"⚡ TICKETS SECURED — PASTE THIS IN BROWSER CONSOLE NOW:")
-    print(f"{'='*60}")
-    print(js)
-    print(f"{'='*60}\n")
+    # Copy to clipboard
+    pyperclip.copy(js)
+    print(f"   ✅ Snippet copied to clipboard")
 
-    # Open the event page so console is on the right domain
+    # Open browser on event page
     webbrowser.open(f"https://campus.hellorubric.com/?eid={EVENT_ID}")
+    time.sleep(3)  # Wait for browser to open and focus
+
+    # Open console with F12, paste and execute
+    import pyautogui
+    pyautogui.hotkey('f12')       # Open devtools
+    time.sleep(1.5)
+    pyautogui.hotkey('ctrl', '`') # Focus console (fallback)
+    time.sleep(0.5)
+    pyautogui.hotkey('ctrl', 'v') # Paste
+    time.sleep(0.2)
+    pyautogui.press('enter')      # Execute
+    print("   ✅ Script executed in browser console")
 
     return True
 
@@ -158,7 +169,7 @@ def monitor():
                     print(f"[{timestamp}] ✅ AVAILABLE — {event_name} | Remaining: {remaining}")
                     success = attempt_checkout(session)
                     if success:
-                        print("✅ Paste the snippet above into your browser console to load the cart!")
+                        print("✅ Cart secured — Ctrl+V in browser console then Enter!")
                         sys.exit(0)
                     else:
                         print("❌ Checkout attempt failed, retrying...")
