@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import time
 import uuid
@@ -12,6 +11,7 @@ import requests
 # CONFIGURATION — EDIT THESE
 # =============================================
 EVENT_ID = "64539"
+# EVENT_ID = "64563"
 TICKET_TYPE_ID = "2879147"
 TICKETS_WANTED = 2
 POLL_INTERVAL = 2
