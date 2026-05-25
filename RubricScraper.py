@@ -7,19 +7,21 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 import requests
 
-# =============================================
-# CONFIGURATION — EDIT THESE
-# =============================================
-EVENT_ID = "64539"
-# EVENT_ID = "64563"
-TICKET_TYPE_ID = "2879147"
+# =========================================================================
+# CONFIGURATION — EDIT THESE THREE VALUES
+# =========================================================================
+# Testing values:
+# EVENT_ID = "64539"            # ELSOC grilled cheese (should succeed)
+# EVENT_ID = "64542"            # ELSOC beer and pizza (should succeed)
+# EVENT_ID = "64563"            # Random event - presale (should fail)
+# EVENT_ID = "63678"            # ELSOC cruise - wallahi
 TICKETS_WANTED = 2
-POLL_INTERVAL = 2
+POLL_INTERVAL = 0.1  # Time in seconds between API availability checks
 
-# Run this in your browser console and paste the result below:
+# Run this in your browser console on the event page and paste the result below:
 # JSON.parse(localStorage.jStorage).sessionid
 SESSION_ID = "444a27b4-2b64-4508-a961-c62bc36b8e1c"
-# =============================================
+# =========================================================================
 
 API_URL = "https://api.hellorubric.com/"
 
@@ -57,12 +59,12 @@ def check_availability(session):
     )
 
 
-def secure_ticket(session):
+def secure_ticket(session, ticket_ids_array):
     return post(
         session,
         {
             "waiting": False,
-            "tickettypesChosen": [TICKET_TYPE_ID] * TICKETS_WANTED,
+            "tickettypesChosen": ticket_ids_array,
             "eventId": EVENT_ID,
             "currentUrl": f"https://campus.hellorubric.com/?eid={EVENT_ID}",
             "device": "web_portal",
@@ -105,43 +107,33 @@ def get_recommendations(session, flow_uid, ruuid):
 
 
 def inject_cart_to_browser(flow_uid):
-    """Launches browser, sets local storage natively, and refreshes."""
     print("🌐 Launching browser via Selenium...")
-
     chrome_options = Options()
-    # Keeps the browser open after the python script finishes execution
     chrome_options.add_experimental_option("detach", True)
     chrome_options.add_argument("--start-maximized")
 
     driver = webdriver.Chrome(options=chrome_options)
     target_url = f"https://campus.hellorubric.com/?eid={EVENT_ID}"
-
-    # 1. Navigate to the page first (Required before you can interact with localStorage)
     driver.get(target_url)
 
-    # 2. Structure the data exactly how jStorage expects it
     now = ts()
     cart_data = [{"created": now, "type": "ticket", "flowUid": flow_uid}]
-
-    # 3. Construct the session object inside jStorage format
     jstorage_payload = {"sessionid": SESSION_ID, "cartItems": cart_data}
 
-    # 4. Use execute_script to write directly into localStorage
     print("⚡ Injecting cart token into localStorage...")
     script = f"localStorage.setItem('jStorage', JSON.stringify({json.dumps(jstorage_payload)}));"
     driver.execute_script(script)
 
-    # 5. Refresh page to reflect the active cart UI instantly
     driver.refresh()
     print("🎉 Page refreshed! Your cart should now be active.")
 
 
-def attempt_checkout(session):
-    print("🎯 Attempting checkout...")
+def attempt_checkout(session, ticket_ids_array):
+    print(f"🎯 Attempting shotgun checkout for ticket IDs: {ticket_ids_array}...")
 
-    ticket_resp = secure_ticket(session)
+    ticket_resp = secure_ticket(session, ticket_ids_array)
     if not ticket_resp.get("success"):
-        print(f"   ❌ Failed to secure ticket: {ticket_resp}")
+        print(f"   ❌ Failed to secure tickets: {ticket_resp}")
         return False
 
     flow_uid = ticket_resp.get("flowUid")
@@ -152,13 +144,10 @@ def attempt_checkout(session):
         print(f"   ❌ Cart verification failed: {cart_resp}")
         return False
 
-    quantity = cart_resp.get("cartArray", [{}])[0].get("quantityRequested", "?")
-    print(f"   ... Cart verified — {quantity} tickets secured for 10 mins")
-
+    print("   ... Cart verified successfully! Tickets secured for 10 mins.")
     ruuid = str(uuid.uuid4())
     get_recommendations(session, flow_uid, ruuid)
 
-    # Trigger automated browser injection
     try:
         inject_cart_to_browser(flow_uid)
         return True
@@ -168,14 +157,14 @@ def attempt_checkout(session):
 
 
 def monitor():
-    if SESSION_ID == "paste-your-sessionid-here":
+    if SESSION_ID == "paste-your-sessionid-here" or not SESSION_ID:
         print("❌ ERROR: You need to set your SESSION_ID first!")
         sys.exit(1)
 
     print("==================================================")
-    print("🚀 TICKET SNIPER ACTIVATED (AUTO-BROWSER)")
+    print("🚀 PRECISE SHOTGUN SNIPER ACTIVATED")
     print(f"📡 Event ID: {EVENT_ID}")
-    print(f"🎟️  Tickets wanted: {TICKETS_WANTED}")
+    print(f"🎟️  Tickets wanted per tier: {TICKETS_WANTED}")
     print(f"⏱️  Polling every {POLL_INTERVAL}s")
     print("==================================================")
 
@@ -187,26 +176,54 @@ def monitor():
                 data = check_availability(session)
 
                 if not data.get("success"):
-                    print(f"[{time.strftime('%H:%M:%S')}] ⚠️  API error")
+                    print(f"[{time.strftime('%H:%M:%S')}] ⚠️  API error (Event details unretrievable)")
                     time.sleep(POLL_INTERVAL)
                     continue
 
                 event_details = data.get("eventDetails", {})
                 event_name = event_details.get("eventName", f"Event #{EVENT_ID}")
                 status = data.get("ticketStatus", "Unknown")
-                remaining = data.get("selectNumberOfTickets", 0)
                 timestamp = time.strftime("%H:%M:%S")
 
                 if status == "Available":
-                    print(
-                        f"[{timestamp}] ✅ AVAILABLE — {event_name} | Remaining: {remaining}"
-                    )
-                    success = attempt_checkout(session)
-                    if success:
-                        print("🏁 Process completed successfully!")
-                        sys.exit(0)
+                    print(f"[{timestamp}] ✅ AVAILABLE — {event_name} | Parsing ticketTypeDetails...")
+                    
+                    # Extract using exact match data keys
+                    ticket_type_details = event_details.get("ticketTypeDetails", [])
+
+                    open_tickets = []
+                    for t in ticket_type_details:
+                        # Filters out closed/ended tickets
+                        if t.get("ticketSaleOpen") is False:
+                            continue
+                        
+                        # Password or restriction check: if 'conditions' array has items, skip it
+                        conditions = t.get("conditions", [])
+                        if conditions: 
+                            continue
+
+                        open_tickets.append(t)
+
+                    if open_tickets:
+                        ids_to_buy = []
+                        for t in open_tickets:
+                            type_id = t.get("typeId")
+                            if type_id:
+                                # Convert typeId to string and multiply by desired count
+                                ids_to_buy.extend([str(type_id)] * TICKETS_WANTED)
+                        
+                        if ids_to_buy:
+                            print(f"🔍 Targets identified: Add to cart -> {list(set(ids_to_buy))}")
+                            success = attempt_checkout(session, ids_to_buy)
+                            if success:
+                                print("🏁 Process completed successfully! Check your browser window.")
+                                sys.exit(0)
+                            else:
+                                print("❌ Checkout attempt failed, continuing loop...")
+                        else:
+                            print("⚠️ Ticket structures matched, but 'typeId' values are missing.")
                     else:
-                        print("❌ Checkout attempt failed, retrying...")
+                        print("⚠️ Event is open, but no active public tiers found (all options may be locked/closed).")
                 else:
                     print(f"[{timestamp}] ❌ {status} — {event_name}")
 
