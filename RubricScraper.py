@@ -3,6 +3,8 @@ import time
 import sys
 import json
 import uuid
+import webbrowser
+import os
 from datetime import datetime
 
 # =============================================
@@ -85,37 +87,36 @@ def get_recommendations(session, flow_uid, ruuid):
 def attempt_checkout(session):
     print("🎯 Attempting checkout...")
 
-    # Step 1 — secure the tickets
     ticket_resp = secure_ticket(session)
-    print(f"   tickets/secure response: {ticket_resp}")
-
     if not ticket_resp.get("success"):
-        print("   ❌ Failed to secure ticket")
+        print(f"   ❌ Failed to secure ticket: {ticket_resp}")
         return False
 
     flow_uid = ticket_resp.get("flowUid")
     print(f"   ✅ Got flowUid: {flow_uid}")
 
-    # Step 2 — verify cart using your real browser session
     cart_resp = verify_cart(session, flow_uid)
-    print(f"   verifyUnifiedCart response: {cart_resp}")
-
     if not cart_resp.get("success"):
-        print("   ❌ Cart verification failed")
+        print(f"   ❌ Cart verification failed: {cart_resp}")
         return False
 
     quantity = cart_resp.get("cartArray", [{}])[0].get("quantityRequested", "?")
-    print(f"   ✅ Cart verified — {quantity} tickets secured")
+    print(f"   ✅ Cart verified — {quantity} tickets secured for 10 mins")
 
-    # Step 3 — recommendations (fires in background, needed to complete flow)
     ruuid = str(uuid.uuid4())
-    rec_resp = get_recommendations(session, flow_uid, ruuid)
-    print(f"   getCartRecommendations: {'✅' if rec_resp.get('success') else '❌'}")
+    get_recommendations(session, flow_uid, ruuid)
 
-    print(f"\n{'='*50}")
-    print(f"🛒 TICKETS SECURED — OPEN YOUR BROWSER NOW:")
-    print(f"   https://campus.hellorubric.com/?eid={EVENT_ID}")
-    print(f"{'='*50}")
+    now = ts()
+    js = f"$.jStorage.set('cartItems',[{{created:{now},type:'ticket',flowUid:'{flow_uid}'}}]);"
+
+    print(f"\n{'='*60}")
+    print(f"⚡ TICKETS SECURED — PASTE THIS IN BROWSER CONSOLE NOW:")
+    print(f"{'='*60}")
+    print(js)
+    print(f"{'='*60}\n")
+
+    # Open the event page so console is on the right domain
+    webbrowser.open(f"https://campus.hellorubric.com/?eid={EVENT_ID}")
 
     return True
 
@@ -132,6 +133,7 @@ def monitor():
     print(f"🎟️  Tickets wanted: {TICKETS_WANTED}")
     print(f"⏱️  Polling every {POLL_INTERVAL}s")
     print(f"🔑 Session ID: {SESSION_ID[:8]}...")
+    print(f"🖥️  Windows User: {os.environ.get('USERNAME')}")
     print("==================================================")
 
     with requests.Session() as session:
@@ -156,10 +158,10 @@ def monitor():
                     print(f"[{timestamp}] ✅ AVAILABLE — {event_name} | Remaining: {remaining}")
                     success = attempt_checkout(session)
                     if success:
-                        print("\n✅ Done! Your cart is loaded. Complete payment in your browser.")
+                        print("✅ Paste the snippet above into your browser console to load the cart!")
                         sys.exit(0)
                     else:
-                        print("❌ Checkout attempt failed, retrying next poll...")
+                        print("❌ Checkout attempt failed, retrying...")
                 else:
                     print(f"[{timestamp}] ❌ {status} — {event_name}")
 
@@ -178,17 +180,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n👋 Monitor deactivated.")
         sys.exit(0)
-
-# paste id and paste this in console after script:
-
-# // Replace these with the values from your script output
-# var flowUid = "633b4a57-4b98-46d7-a635-f4bbb61fee78";
-# var sessionId = "444a27b4-2b64-4508-a961-c62bc36b8e1c";
-
-# var storage = JSON.parse(localStorage.jStorage);
-# storage.cartItems = [{"created": Date.now(), "type": "ticket", "flowUid": flowUid}];
-# storage.sessionid = sessionId;
-# localStorage.jStorage = JSON.stringify(storage);
-
-# // Then reload the page
-# location.reload();
