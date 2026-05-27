@@ -20,7 +20,7 @@ POLL_INTERVAL = 0.1  # Time in seconds between API availability checks
 
 # Run this in your browser console on the event page and paste the result below:
 # JSON.parse(localStorage.jStorage).sessionid
-SESSION_ID = "444a27b4-2b64-4508-a961-c62bc36b8e1c"
+SESSION_ID = "paste-your-sessionid-here"
 # =========================================================================
 
 API_URL = "https://api.hellorubric.com/"
