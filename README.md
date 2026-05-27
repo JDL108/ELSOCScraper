@@ -1,5 +1,5 @@
 # Rubric Ticket Sniper README
-This requires google chrome to be installed on your computer, not tested for mac currently. 
+This requires google chrome to be installed on your computer, tested on windows and mac. 
 ## Setup
 
 1. Install Python from python.org (Check "Add to PATH").
