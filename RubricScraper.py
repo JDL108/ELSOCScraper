@@ -129,12 +129,18 @@ def inject_cart_to_browser(flow_uid):
 
 
 def attempt_checkout(session, ticket_ids_array):
-    print(f"🎯 Attempting shotgun checkout for ticket IDs: {ticket_ids_array}...")
+    """
+    Attempts to secure a ticket and verify the cart.
+    Returns the flow_uid on success, or None on failure.
+    Browser injection is intentionally NOT done here — it must be called
+    after the requests session is closed to avoid ChromeDriver blocking.
+    """
+    print(f"🎯 Attempting checkout for ticket IDs: {ticket_ids_array}...")
 
     ticket_resp = secure_ticket(session, ticket_ids_array)
     if not ticket_resp.get("success"):
         print(f"   ❌ Failed to secure tickets: {ticket_resp}")
-        return False
+        return None
 
     flow_uid = ticket_resp.get("flowUid")
     print(f"   ... Got flowUid: {flow_uid}")
@@ -142,18 +148,13 @@ def attempt_checkout(session, ticket_ids_array):
     cart_resp = verify_cart(session, flow_uid)
     if not cart_resp.get("success"):
         print(f"   ❌ Cart verification failed: {cart_resp}")
-        return False
+        return None
 
     print("   ... Cart verified successfully! Tickets secured for 10 mins.")
     ruuid = str(uuid.uuid4())
     get_recommendations(session, flow_uid, ruuid)
 
-    try:
-        inject_cart_to_browser(flow_uid)
-        return True
-    except Exception as e:
-        print(f"   ❌ Error injecting into browser: {e}")
-        return False
+    return flow_uid
 
 
 def monitor():
@@ -167,6 +168,8 @@ def monitor():
     print(f"🎟️  Tickets wanted per tier: {TICKETS_WANTED}")
     print(f"⏱️  Polling every {POLL_INTERVAL}s")
     print("==================================================")
+
+    winning_flow_uid = None
 
     with requests.Session() as session:
         session.headers.update(HEADERS)
@@ -187,39 +190,41 @@ def monitor():
 
                 if status == "Available":
                     print(f"[{timestamp}] ✅ AVAILABLE — {event_name} | Parsing ticketTypeDetails...")
-                    
-                    # Extract using exact match data keys
+
                     ticket_type_details = event_details.get("ticketTypeDetails", [])
 
                     open_tickets = []
                     for t in ticket_type_details:
-                        # Filters out closed/ended tickets
                         if t.get("ticketSaleOpen") is False:
                             continue
-                        
-                        # Password or restriction check: if 'conditions' array has items, skip it
                         conditions = t.get("conditions", [])
-                        if conditions: 
+                        if conditions:
                             continue
-
                         open_tickets.append(t)
 
                     if open_tickets:
-                        ids_to_buy = []
+                        unique_type_ids = []
                         for t in open_tickets:
                             type_id = t.get("typeId")
-                            if type_id:
-                                # Convert typeId to string and multiply by desired count
-                                ids_to_buy.extend([str(type_id)] * TICKETS_WANTED)
-                        
-                        if ids_to_buy:
-                            print(f"🔍 Targets identified: Add to cart -> {list(set(ids_to_buy))}")
-                            success = attempt_checkout(session, ids_to_buy)
-                            if success:
-                                print("🏁 Process completed successfully! Check your browser window.")
-                                sys.exit(0)
+                            if type_id and str(type_id) not in unique_type_ids:
+                                unique_type_ids.append(str(type_id))
+
+                        if unique_type_ids:
+                            print(f"🔍 Targets identified: {unique_type_ids} — trying each in succession...")
+                            for type_id in unique_type_ids:
+                                ids_to_buy = [type_id] * TICKETS_WANTED
+                                print(f"   → Trying ticket type {type_id}...")
+                                flow_uid = attempt_checkout(session, ids_to_buy)
+                                if flow_uid:
+                                    winning_flow_uid = flow_uid
+                                    break  # Exit inner loop — browser opened below after session closes
+                                else:
+                                    print(f"   ↩ Type {type_id} failed, trying next...")
+
+                            if winning_flow_uid:
+                                break  # Exit the while loop to close the requests session cleanly
                             else:
-                                print("❌ Checkout attempt failed, continuing loop...")
+                                print("❌ All ticket types failed, continuing loop...")
                         else:
                             print("⚠️ Ticket structures matched, but 'typeId' values are missing.")
                     else:
@@ -235,6 +240,19 @@ def monitor():
                 print(f"⚠️  JSON error: {e}")
 
             time.sleep(POLL_INTERVAL)
+
+    # Requests session is now fully closed — safe to launch Chrome
+    if winning_flow_uid:
+        print("🏁 Ticket secured! Launching browser...")
+        try:
+            inject_cart_to_browser(winning_flow_uid)
+            print("✅ Process completed successfully! Check your browser window.")
+        except Exception as e:
+            print(f"❌ Error injecting into browser: {e}")
+            print(f"   Your flowUid was: {winning_flow_uid}")
+            print(f"   You can manually inject it at: https://campus.hellorubric.com/?eid={EVENT_ID}")
+    else:
+        print("❌ Exited without a winning ticket.")
 
 
 if __name__ == "__main__":
